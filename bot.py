@@ -140,7 +140,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        config = db.get_random_config()
+        config = db.get_and_mark_config(user_id)
         if not config:
             await query.edit_message_text(
                 "⚠️ در حال حاضر کانفیگی موجود نیست. لطفاً بعداً تلاش کنید.",
@@ -148,13 +148,33 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        db.use_config(user_id)
         await query.edit_message_text(
             f"✅ کانفیگ رایگان شما:\n\n`{config}`\n\n"
             f"📋 کپی کنید و در اپ V2Ray یا Hiddify وارد کنید.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back")]]),
             parse_mode="Markdown"
         )
+
+        # Notify admins
+        user = query.from_user
+        ref_count = await get_referral_count(user_id)
+        notify_text = (
+            f"🎁 کانفیگ جدید دریافت شد!\n\n"
+            f"👤 نام: {user.full_name}\n"
+            f"🆔 آیدی: `{user_id}`\n"
+            f"👥 تعداد دعوت‌ها: {ref_count} نفر\n"
+            f"🔗 یوزرنیم: @{user.username}" if user.username else
+            f"🎁 کانفیگ جدید دریافت شد!\n\n"
+            f"👤 نام: {user.full_name}\n"
+            f"🆔 آیدی: `{user_id}`\n"
+            f"👥 تعداد دعوت‌ها: {ref_count} نفر\n"
+            f"🔗 یوزرنیم: ندارد"
+        )
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(admin_id, notify_text, parse_mode="Markdown")
+            except Exception:
+                pass
 
     elif data == "my_refs":
         ref_count = await get_referral_count(user_id)
@@ -235,11 +255,13 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         if not configs:
             text = "📋 هیچ کانفیگی موجود نیست."
         else:
-            text = f"📋 کانفیگ‌های موجود ({len(configs)} عدد):\n\n"
-            for i, cfg in enumerate(configs[:10], 1):
-                text += f"{i}. `{cfg[:50]}...`\n"
-            if len(configs) > 10:
-                text += f"\n... و {len(configs)-10} کانفیگ دیگر"
+            free = [c for c in configs if not c["used"]]
+            used = [c for c in configs if c["used"]]
+            text = f"📋 کانفیگ‌ها:\n✅ آزاد: {len(free)} عدد | ❌ داده‌شده: {len(used)} عدد\n\n"
+            for i, c in enumerate(free[:10], 1):
+                text += f"✅ {i}. `{c['config'][:45]}...`\n"
+            if len(free) > 10:
+                text += f"\n... و {len(free)-10} کانفیگ آزاد دیگر"
         await query.edit_message_text(
             text,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]]),
