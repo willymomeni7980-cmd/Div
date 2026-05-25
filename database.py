@@ -1,6 +1,5 @@
 import sqlite3
 import random
-import os
 
 
 class Database:
@@ -30,6 +29,8 @@ class Database:
                 CREATE TABLE IF NOT EXISTS configs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     config TEXT UNIQUE NOT NULL,
+                    is_used INTEGER DEFAULT 0,
+                    given_to INTEGER DEFAULT NULL,
                     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
@@ -37,6 +38,11 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
                 );
             """)
 
@@ -48,7 +54,6 @@ class Database:
             )
 
     def add_referral(self, referrer_id: int, referred_id: int) -> bool:
-        """Returns True if referral was new."""
         try:
             with self._conn() as conn:
                 conn.execute(
@@ -74,17 +79,28 @@ class Database:
         except Exception:
             return False
 
-    def get_random_config(self) -> str | None:
+    def get_and_mark_config(self, user_id: int) -> str | None:
+        """Get a free config, mark it as used, return it. Atomic."""
         with self._conn() as conn:
-            rows = conn.execute("SELECT config FROM configs").fetchall()
-            if not rows:
+            row = conn.execute(
+                "SELECT id, config FROM configs WHERE is_used = 0 ORDER BY RANDOM() LIMIT 1"
+            ).fetchone()
+            if not row:
                 return None
-            return random.choice(rows)[0]
+            config_id, config = row
+            conn.execute(
+                "UPDATE configs SET is_used = 1, given_to = ? WHERE id = ?",
+                (user_id, config_id)
+            )
+            conn.execute("INSERT INTO config_usage (user_id) VALUES (?)", (user_id,))
+            return config
 
-    def get_all_configs(self) -> list[str]:
+    def get_all_configs(self) -> list[dict]:
         with self._conn() as conn:
-            rows = conn.execute("SELECT config FROM configs ORDER BY added_at DESC").fetchall()
-            return [r[0] for r in rows]
+            rows = conn.execute(
+                "SELECT config, is_used FROM configs ORDER BY added_at DESC"
+            ).fetchall()
+            return [{"config": r[0], "used": bool(r[1])} for r in rows]
 
     def clear_configs(self):
         with self._conn() as conn:
@@ -97,26 +113,17 @@ class Database:
             ).fetchone()
             return row[0] if row else 0
 
-    def use_config(self, user_id: int):
-        with self._conn() as conn:
-            conn.execute("INSERT INTO config_usage (user_id) VALUES (?)", (user_id,))
-
     def get_stats(self) -> dict:
         with self._conn() as conn:
             users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-            configs = conn.execute("SELECT COUNT(*) FROM configs").fetchone()[0]
-            used = conn.execute("SELECT COUNT(*) FROM config_usage").fetchone()[0]
-            return {"users": users, "configs": configs, "used": used}
+            total = conn.execute("SELECT COUNT(*) FROM configs").fetchone()[0]
+            used = conn.execute("SELECT COUNT(*) FROM configs WHERE is_used = 1").fetchone()[0]
+            free = total - used
+            return {"users": users, "configs": free, "configs_total": total, "used": used}
 
     def get_setting(self, key: str, default: str = "") -> str:
         try:
             with self._conn() as conn:
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS settings (
-                        key TEXT PRIMARY KEY,
-                        value TEXT
-                    )
-                """)
                 row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
                 return row[0] if row else default
         except Exception:
@@ -124,14 +131,12 @@ class Database:
 
     def set_setting(self, key: str, value: str):
         with self._conn() as conn:
-            conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
 
     def is_referral_active(self) -> bool:
         return self.get_setting("referral_active", "1") == "1"
 
     def toggle_referral(self) -> bool:
-        """Toggle referral system. Returns new state (True=active)."""
         current = self.is_referral_active()
         self.set_setting("referral_active", "0" if current else "1")
         return not current
