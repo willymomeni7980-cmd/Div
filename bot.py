@@ -21,14 +21,13 @@ db = Database()
 
 
 async def check_membership(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Check if user is member of force-join channel."""
     if not FORCE_JOIN_CHANNEL:
         return True
     try:
         member = await context.bot.get_chat_member(FORCE_JOIN_CHANNEL, user_id)
         return member.status not in ["left", "kicked"]
     except Exception:
-        return True  # If can't check, allow
+        return True
 
 
 async def get_referral_count(user_id: int) -> int:
@@ -40,10 +39,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     args = context.args
 
-    # Register user
     db.add_user(user_id, user.username or user.first_name)
 
-    # Handle referral
     if args and args[0].startswith("ref_"):
         try:
             referrer_id = int(args[0].split("_")[1])
@@ -52,11 +49,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    # Force join check
     if not await check_membership(user_id, context):
         channel = FORCE_JOIN_CHANNEL
-        keyboard = [[InlineKeyboardButton("📢 عضویت در کانال", url=f"https://t.me/{channel.lstrip('@')}")],
-                    [InlineKeyboardButton("✅ عضو شدم", callback_data="check_join")]]
+        keyboard = [
+            [InlineKeyboardButton("📢 عضویت در کانال", url=f"https://t.me/{channel.lstrip('@')}")],
+            [InlineKeyboardButton("✅ عضو شدم", callback_data="check_join")]
+        ]
         await update.message.reply_text(
             "⚠️ برای استفاده از ربات باید عضو کانال ما باشید:",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -78,11 +76,14 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
 
     text = (
-        f"👋 سلام {user.first_name}!\n\n"
-        f"🔗 لینک دعوت شما:\n`{ref_link}`\n\n"
+        f"سلام {user.first_name} عزیز! 👋\n\n"
+        f"اینجا کمکت می‌کنیم تا به اینترنت آزاد وصل بمونی، اونم کاملاً رایگان 🆓\n\n"
+        f"━━━━━━━━━━━━━━━\n"
         f"👥 دوستان دعوت‌شده: {ref_count} نفر\n"
-        f"🎁 کانفیگ‌های قابل دریافت: {configs_available} عدد\n\n"
-        f"📌 به ازای هر ۴ نفر دعوت، یک کانفیگ رایگان دریافت کنید!"
+        f"🎁 کانفیگ قابل دریافت: {configs_available} عدد\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"به ازای هر ۴ نفری که دعوت کنی، یک کانفیگ رایگان می‌گیری! 📌\n\n"
+        f"🔗 لینک دعوت تو:\n`{ref_link}`"
     )
 
     keyboard = [
@@ -150,7 +151,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.use_config(user_id)
         await query.edit_message_text(
             f"✅ کانفیگ رایگان شما:\n\n`{config}`\n\n"
-            f"📋 کپی کنید و در اپ V2Ray/Hiddify وارد کنید.",
+            f"📋 کپی کنید و در اپ V2Ray یا Hiddify وارد کنید.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back")]]),
             parse_mode="Markdown"
         )
@@ -166,7 +167,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👥 کل دعوت‌شده‌ها: {ref_count} نفر\n"
             f"🎁 کانفیگ‌های گرفته‌شده: {configs_used} عدد\n"
             f"✅ کانفیگ‌های قابل دریافت: {configs_earned - configs_used} عدد\n\n"
-            f"{'✨ همین الان میتونید کانفیگ بگیرید!' if configs_earned - configs_used > 0 else f'⏳ برای کانفیگ بعدی {still_needed} نفر دیگر دعوت کنید.'}",
+            f"{'✨ همین الان می‌تونی کانفیگ بگیری!' if configs_earned - configs_used > 0 else f'⏳ برای کانفیگ بعدی {still_needed} نفر دیگر دعوت کن.'}",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="back")]]),
         )
 
@@ -181,7 +182,6 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in ADMIN_IDS:
         await update.message.reply_text("❌ دسترسی ندارید.")
         return
-
     await show_admin_panel(update, context)
 
 
@@ -237,7 +237,7 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             text = f"📋 کانفیگ‌های موجود ({len(configs)} عدد):\n\n"
             for i, cfg in enumerate(configs[:10], 1):
-                text += f"{i}. `{cfg[:40]}...`\n"
+                text += f"{i}. `{cfg[:50]}...`\n"
             if len(configs) > 10:
                 text += f"\n... و {len(configs)-10} کانفیگ دیگر"
         await query.edit_message_text(
